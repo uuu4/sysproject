@@ -10,31 +10,68 @@
 
 #define BUF_SIZE 4096
 #define MAX_ARGS 64
-#define SHARED_FILE_PATH "mymsgbuf"
+#define SHARED_FILE_PATH "/mymsgbuf"
 
 
-struct shmbuf *buf_init() {
-    struct shmbuf *shmp;
-
-    /*contents of model_init() function*/
+ShmBuf* buf_init(void) {
+    shm_unlink(SHARED_FILE_PATH);
+    ShmBuf *shmp;
     int fd = shm_open(SHARED_FILE_PATH, O_CREAT | O_RDWR, 0600);
     if (fd < 0) {
         errExit("could not open shared file");
     }
 
-    /* Map the object into the caller's address space. */
-    shmp =
-        mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    // Önce shared memory dosya boyutunu ayarla.
+    if (ftruncate(fd, BUF_SIZE) == -1) {
+        errExit("ftruncate error");
+    }
 
-    if (shmp != NULL) {
-        ftruncate(fd, BUF_SIZE);
-        shmp->fd = fd;
-        sem_init(&shmp->sem, 1, 1);
-    } else {
+    // Daha sonra mmap işlemi yap.
+    shmp = mmap(NULL, BUF_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (shmp == MAP_FAILED) {
         errExit("mmap error");
     }
 
+    // Artık shared memory alanı doğru şekilde haritalandı.
+    shmp->fd = fd;
+    sem_init(&shmp->sem, 1, 1);
+
     return shmp;
+}
+
+
+int model_send_message(ShmBuf *shmp, const char *msg) {
+    if (shmp == NULL || msg == NULL) return -1;
+
+    sem_wait(&shmp->sem); // Kritik bölgeye giriş
+
+    /* Mesajı kopyala.
+     * BUF_SIZE, tüm shared memory boyutunu belirler; 
+     * burada yapının esnek alanına yazdığımız için, basitçe BUF_SIZE kadar alanı kullanıyoruz.
+     */
+    strncpy(shmp->msgbuf, msg, BUF_SIZE - sizeof(ShmBuf));
+    shmp->msgbuf[BUF_SIZE - sizeof(ShmBuf) - 1] = '\0';  // Null-terminator ekle
+    shmp->cnt = strlen(shmp->msgbuf); // Yazılan bayt sayısını güncelle
+
+    sem_post(&shmp->sem); // Kritik bölgeden çıkış
+    return 0;
+}
+
+
+int model_read_messages(ShmBuf *shmp, char *buffer, size_t bufsize) {
+    if (shmp == NULL || buffer == NULL) return -1;
+
+    sem_wait(&shmp->sem); // Kritik bölgeye giriş
+
+    size_t count = shmp->cnt;
+    if (count >= bufsize) {
+        count = bufsize - 1;
+    }
+    strncpy(buffer, shmp->msgbuf, count);
+    buffer[count] = '\0'; // Null-terminator ekle
+
+    sem_post(&shmp->sem); // Kritik bölgeden çıkış
+    return count;
 }
 /**
  * execute_command - Girilen komut satırını çalıştırır ve çıktısını yakalar.
@@ -105,31 +142,5 @@ int execute_command(const char *command) {
         waitpid(pid, &status, 0);
         return status;
     }
-}
-
-int main() {
-    struct shmbuf *shmp = buf_init();
-    pid_t pid = fork();
-
-    if (pid == 0) {
-        /* child */
-        char msg[100] = "hi from child";
-
-        sem_wait(&shmp->sem); /* for synchronization */
-        strncpy(shmp->msgbuf, msg, sizeof(msg));
-        sem_post(&shmp->sem);
-
-        errExit("msg sent:");
-    } else if (pid > 0) {
-        /* parent */
-        wait(NULL);
-
-        sem_wait(&shmp->sem); /* for synchronization */
-        printf("parent received: %d-%.100s\n", shmp->fd,
-               shmp->msgbuf);
-        sem_post(&shmp->sem);
-    }
-    shm_unlink(SHARED_FILE_PATH);
-    return 0;
 }
 

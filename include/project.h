@@ -42,9 +42,13 @@ int model_read_messages(ShmBuf *shmp, char *buffer, size_t bufsize);
 
 /* Controller fonksiyon prototipleri */
 void controller_parse_input(const char *input);
+void controller_handle_command(const char *command);
+void controller_handle_message(const char *message);
+void controller_refresh_messages(void);
 
 /* View (GUI) fonksiyon prototipleri */
 void view_update_terminal(const char *output);
 void view_display_message(const char *msg);
+int view_main(int argc, char **argv);
 
 #endif /* PROJECT_H */

@@ -27,7 +27,7 @@ void controller_parse_input(const char *input){
     }}
     else{
         int status = execute_command(input);
-        printf("Running command '%s' with %d status code", status);
+        printf("Running command with %d status code", status);
     }
    
 }
@@ -39,7 +39,7 @@ void controller_handle_command(const char *command){
     }
     int status = execute_command(command);
     char resultMsg[256];
-    snprintf(resultMsg,sizeof(resultMsg),"Running command with %d status code",command , status);
+    snprintf(resultMsg,sizeof(resultMsg),"Running command '%s' with %d status code", command,status);
     view_update_terminal(resultMsg);
 }
 
